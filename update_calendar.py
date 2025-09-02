@@ -3,8 +3,8 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import re
 
-# 指定講者名稱關鍵字
-TARGET_NAMES = ["Pavlovich", "Shane Olson", "Narukawa"]
+# 指定講者名稱關鍵字（新增 Sakaki）
+TARGET_NAMES = ["Pavlovich", "Shane Olson", "Narukawa", "Sakaki"]
 
 # 美國西岸時間偏移為 UTC-7
 TZ_OFFSET = timedelta(hours=7)
@@ -80,4 +80,3 @@ if __name__ == "__main__":
     with open("zbrushlive.ics", "w", encoding="utf-8") as f:
         f.write(ics_content)
     print(f"Generated {len(evs)} events → zbrushlive.ics")
-
