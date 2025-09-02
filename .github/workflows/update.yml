@@ -2,31 +2,31 @@ name: Update ZBrushLive Calendar
 
 on:
   schedule:
-    - cron: "0 3 * * *"  # 每天 UTC 03:00 自動跑一次（可改）
-  workflow_dispatch:     # 允許手動觸發
+    - cron: "0 4 * * *"  # 每天 UTC 04:00 執行
+  workflow_dispatch:    # 可手動執行
 
 jobs:
-  build:
+  update:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: "3.x"
 
       - name: Install dependencies
         run: pip install requests beautifulsoup4
 
-      - name: Run script
+      - name: Run calendar update script
         run: python update_calendar.py
 
-      - name: Commit and push if changed
+      - name: Commit and push updates
         run: |
           git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
+          git config user.email "actions@github.com"
           git add zbrushlive.ics
-          git commit -m "Auto-update ICS" || echo "No changes to commit"
+          git commit -m "Auto-update zbrushlive.ics" || echo "No changes detected"
           git push
