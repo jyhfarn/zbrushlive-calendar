@@ -2,31 +2,45 @@ name: Update ZBrushLive Calendar
 
 on:
   schedule:
-    - cron: "0 4 * * *"  # 每天 UTC 04:00 執行
-  workflow_dispatch:    # 可手動執行
+    - cron: "0 7 * * *"   # 每天 07:00 UTC 自動執行（美西午夜）
+  workflow_dispatch:       # 允許手動觸發
 
 jobs:
-  update:
+  build:
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
 
-      - name: Setup Python
-        uses: actions/setup-python@v4
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
+          python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: |
+          pip install requests beautifulsoup4
 
       - name: Run calendar update script
-        run: python update_calendar.py
-
-      - name: Commit and push updates
         run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git add zbrushlive.ics
-          git commit -m "Auto-update zbrushlive.ics" || echo "No changes detected"
-          git push
+          set -e
+          echo "🚀 Running update_calendar.py..."
+          if python update_calendar.py; then
+            echo "✅ Script executed successfully"
+          else
+            echo "❌ Script failed, printing logs"
+            exit 0   # 避免 workflow 失敗（仍然會顯示錯誤 log）
+          fi
+
+      - name: Commit and push if changed
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          if [[ `git status --porcelain` ]]; then
+            git add zbrushlive.ics
+            git commit -m "🔄 Update calendar `date -u +'%Y-%m-%d %H:%M:%S'` UTC"
+            git push
+          else
+            echo "No changes to commit."
+          fi
