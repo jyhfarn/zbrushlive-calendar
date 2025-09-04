@@ -2,8 +2,11 @@ name: Update ZBrushLive Calendar
 
 on:
   schedule:
-    - cron: "0 7 * * *"   # 每天 07:00 UTC 自動執行（美西午夜）
-  workflow_dispatch:       # 允許手動觸發
+    - cron: "0 7 * * *"   # 每天 07:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write   # ✅ 給 workflow 寫入 repo 的權限
 
 jobs:
   build:
@@ -24,23 +27,23 @@ jobs:
 
       - name: Run calendar update script
         run: |
-          set -e
           echo "🚀 Running update_calendar.py..."
           if python update_calendar.py; then
             echo "✅ Script executed successfully"
           else
-            echo "❌ Script failed, printing logs"
-            exit 0   # 避免 workflow 失敗（仍然會顯示錯誤 log）
+            echo "❌ Script failed"
+            exit 0
           fi
 
       - name: Commit and push if changed
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
           if [[ `git status --porcelain` ]]; then
             git add zbrushlive.ics
-            git commit -m "🔄 Update calendar `date -u +'%Y-%m-%d %H:%M:%S'` UTC"
-            git push
+            git commit -m "🔄 Update calendar $(date -u +'%Y-%m-%d %H:%M:%S') UTC"
+            git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git HEAD:main
           else
             echo "No changes to commit."
           fi
