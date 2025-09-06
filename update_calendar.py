@@ -17,66 +17,70 @@ def fetch_schedule():
     events = []
     for header in soup.find_all("h3"):
         text = header.get_text(strip=True)
-        if any(name in text for name in TARGET_NAMES):
-            # 找日期 <p>（通常包含 Tue, Sep 02 格式）
-            date_tag = header.find_next_sibling(
-                lambda tag: tag.name == "p" and re.search(r"\w{3},", tag.get_text(strip=True))
-            )
-            # 找時間 <p>（通常包含 am/pm）
-            time_tag = None
-            if date_tag:
-                time_tag = date_tag.find_next_sibling(
-                    lambda tag: tag.name == "p" and re.search(r"\d{1,2}:\d{2}\s*(am|pm)", tag.get_text(strip=True))
-                )
+        if not any(name in text for name in TARGET_NAMES):
+            continue
 
-            if not date_tag or not time_tag:
-                # 如果缺資料就跳過
-                continue
+        # 找到 header 後，掃描接下來的 <p> 標籤
+        p_tags = []
+        nxt = header.find_next_sibling()
+        while nxt and nxt.name == "p":
+            p_tags.append(nxt)
+            nxt = nxt.find_next_sibling()
 
-            date_str = date_tag.get_text(strip=True)
-            time_str = time_tag.get_text(strip=True)
+        # 從 p_tags 裡找日期和時間
+        date_tag = None
+        time_tag = None
+        for p in p_tags:
+            t = p.get_text(strip=True)
+            if re.search(r"\w{3},\s*\w{3}\s*\d{1,2}", t):  # Tue, Sep 02
+                date_tag = p
+            elif re.search(r"\d{1,2}:\d{2}\s*(am|pm).+-", t, re.IGNORECASE):  # 4:00 pm - 6:00 pm
+                time_tag = p
 
-            try:
-                # 預設年份 2025
-                dt = datetime.strptime(f"{date_str} 2025", "%a, %b %d %Y")
-            except ValueError:
-                # 格式不符就跳過
-                continue
+        if not date_tag or not time_tag:
+            print(f"⚠️ Skipped (missing date/time) → {text}")
+            continue
 
-            # 時間格式如 "4:00 am - 6:00 am"
-            m = re.match(
-                r"(\d{1,2}:\d{2})\s*(am|pm)\s*-\s*(\d{1,2}:\d{2})\s*(am|pm)",
-                time_str,
-                re.IGNORECASE,
-            )
-            if not m:
-                continue
+        date_str = date_tag.get_text(strip=True)
+        time_str = time_tag.get_text(strip=True)
 
-            start_str, start_ap, end_str, end_ap = m.groups()
+        try:
+            dt = datetime.strptime(f"{date_str} 2025", "%a, %b %d %Y")
+        except ValueError:
+            print(f"⚠️ Date parse failed: {date_str}")
+            continue
 
-            # 處理開始時間
-            start_dt = datetime.strptime(start_str, "%I:%M")
-            if start_ap.lower() == "pm" and start_dt.hour != 12:
-                start_dt = start_dt.replace(hour=start_dt.hour + 12)
-            if start_ap.lower() == "am" and start_dt.hour == 12:
-                start_dt = start_dt.replace(hour=0)
+        # 解析時間區段
+        m = re.match(
+            r"(\d{1,2}:\d{2})\s*(am|pm)\s*-\s*(\d{1,2}:\d{2})\s*(am|pm)",
+            time_str,
+            re.IGNORECASE,
+        )
+        if not m:
+            print(f"⚠️ Time parse failed: {time_str}")
+            continue
 
-            # 處理結束時間
-            end_dt = datetime.strptime(end_str, "%I:%M")
-            if end_ap.lower() == "pm" and end_dt.hour != 12:
-                end_dt = end_dt.replace(hour=end_dt.hour + 12)
-            if end_ap.lower() == "am" and end_dt.hour == 12:
-                end_dt = end_dt.replace(hour=0)
+        start_str, start_ap, end_str, end_ap = m.groups()
 
-            # 合併成完整 datetime
-            start = datetime(dt.year, dt.month, dt.day, start_dt.hour, start_dt.minute)
-            end = datetime(dt.year, dt.month, dt.day, end_dt.hour, end_dt.minute)
+        def parse_time(timestr, ap):
+            dt = datetime.strptime(timestr, "%I:%M")
+            if ap.lower() == "pm" and dt.hour != 12:
+                dt = dt.replace(hour=dt.hour + 12)
+            if ap.lower() == "am" and dt.hour == 12:
+                dt = dt.replace(hour=0)
+            return dt
 
-            events.append({
-                "title": "ZBrushLive " + text,
-                "start": start,
-                "end": end
-            })
+        start_dt = parse_time(start_str, start_ap)
+        end_dt = parse_time(end_str, end_ap)
+
+        start = datetime(dt.year, dt.month, dt.day, start_dt.hour, start_dt.minute)
+        end = datetime(dt.year, dt.month, dt.day, end_dt.hour, end_dt.minute)
+
+        events.append({
+            "title": "ZBrushLive " + text,
+            "start": start,
+            "end": end
+        })
     return events
 
 
@@ -101,7 +105,10 @@ def build_ics(events):
 
 if __name__ == "__main__":
     evs = fetch_schedule()
+    print(f"✅ Found {len(evs)} events")
+    for e in evs:
+        print(f" - {e['title']} {e['start']} → {e['end']}")
     ics_content = build_ics(evs)
     with open("zbrushlive.ics", "w", encoding="utf-8") as f:
         f.write(ics_content)
-    print(f"Generated {len(evs)} events → zbrushlive.ics")
+    print(f"📅 Saved to zbrushlive.ics")
