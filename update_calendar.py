@@ -3,11 +3,8 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import re
 
-# 指定講者名稱關鍵字
 TARGET_NAMES = ["Pavlovich", "Shane Olson", "Narukawa", "Sakaki"]
-
-# 美國西岸時間偏移為 UTC-7
-TZ_OFFSET = timedelta(hours=7)
+TZ_OFFSET = timedelta(hours=7)  # PDT → UTC
 
 def fetch_schedule():
     url = "https://pixologic.com/zbrushlive/calendar/"
@@ -16,33 +13,26 @@ def fetch_schedule():
 
     events = []
     for header in soup.find_all("h3"):
-        text = header.get_text(strip=True)
-        if not any(name in text for name in TARGET_NAMES):
+        title_text = header.get_text(strip=True)
+        if not any(name in title_text for name in TARGET_NAMES):
             continue
 
-        # 找到 header 後，掃描接下來的 <p> 標籤
-        p_tags = []
-        nxt = header.find_next_sibling()
-        while nxt and nxt.name == "p":
-            p_tags.append(nxt)
-            nxt = nxt.find_next_sibling()
+        # 找到日期與時間：定位 header 下一行文字
+        next_sib = header.find_next_sibling(text=True)
+        date_str, time_str = None, None
 
-        # 從 p_tags 裡找日期和時間
-        date_tag = None
-        time_tag = None
-        for p in p_tags:
-            t = p.get_text(strip=True)
-            if re.search(r"\w{3},\s*\w{3}\s*\d{1,2}", t):  # Tue, Sep 02
-                date_tag = p
-            elif re.search(r"\d{1,2}:\d{2}\s*(am|pm).+-", t, re.IGNORECASE):  # 4:00 pm - 6:00 pm
-                time_tag = p
+        while next_sib:
+            line = next_sib.strip()
+            if re.match(r"\w{3},\s*\w{3}\s*\d{1,2}", line):  # e.g., Fri, Sep 05
+                date_str = line
+            elif re.search(r"\d{1,2}:\d{2}\s*(am|pm)\s*-\s*\d{1,2}:\d{2}\s*(am|pm)", line, re.IGNORECASE):
+                time_str = line
+                break
+            next_sib = next_sib.find_next_sibling(text=True)
 
-        if not date_tag or not time_tag:
-            print(f"⚠️ Skipped (missing date/time) → {text}")
+        if not date_str or not time_str:
+            print(f"⚠️ Skipped (no date/time found): {title_text}")
             continue
-
-        date_str = date_tag.get_text(strip=True)
-        time_str = time_tag.get_text(strip=True)
 
         try:
             dt = datetime.strptime(f"{date_str} 2025", "%a, %b %d %Y")
@@ -50,7 +40,6 @@ def fetch_schedule():
             print(f"⚠️ Date parse failed: {date_str}")
             continue
 
-        # 解析時間區段
         m = re.match(
             r"(\d{1,2}:\d{2})\s*(am|pm)\s*-\s*(\d{1,2}:\d{2})\s*(am|pm)",
             time_str,
@@ -59,56 +48,52 @@ def fetch_schedule():
         if not m:
             print(f"⚠️ Time parse failed: {time_str}")
             continue
-
         start_str, start_ap, end_str, end_ap = m.groups()
 
-        def parse_time(timestr, ap):
-            dt = datetime.strptime(timestr, "%I:%M")
-            if ap.lower() == "pm" and dt.hour != 12:
-                dt = dt.replace(hour=dt.hour + 12)
-            if ap.lower() == "am" and dt.hour == 12:
-                dt = dt.replace(hour=0)
-            return dt
+        def parse_component(timestr, ap):
+            dtc = datetime.strptime(timestr, "%I:%M")
+            h = dtc.hour
+            if ap.lower() == "pm" and h != 12:
+                h += 12
+            if ap.lower() == "am" and h == 12:
+                h = 0
+            return h, dtc.minute
 
-        start_dt = parse_time(start_str, start_ap)
-        end_dt = parse_time(end_str, end_ap)
+        sh, sm = parse_component(start_str, start_ap)
+        eh, em = parse_component(end_str, end_ap)
+        start = datetime(dt.year, dt.month, dt.day, sh, sm)
+        end = datetime(dt.year, dt.month, dt.day, eh, em)
 
-        start = datetime(dt.year, dt.month, dt.day, start_dt.hour, start_dt.minute)
-        end = datetime(dt.year, dt.month, dt.day, end_dt.hour, end_dt.minute)
-
+        print(f"✔ Found: {title_text} | {date_str} | {time_str}")
         events.append({
-            "title": "ZBrushLive " + text,
+            "title": "ZBrushLive " + title_text,
             "start": start,
             "end": end
         })
     return events
 
-
 def build_ics(events):
     ics = "BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//ZBrushLIVE to iCal//EN\n"
     for ev in events:
-        # 轉成 UTC
-        start_utc = ev["start"] + TZ_OFFSET
-        end_utc = ev["end"] + TZ_OFFSET
+        s = ev["start"] + TZ_OFFSET
+        e = ev["end"] + TZ_OFFSET
         ics += (
             "BEGIN:VEVENT\n"
-            f"UID:{ev['title'].replace(' ', '')}-{start_utc.strftime('%Y%m%dT%H%M%SZ')}\n"
+            f"UID:{ev['title'].replace(' ', '')}-{s.strftime('%Y%m%dT%H%M%SZ')}\n"
             f"DTSTAMP:{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}\n"
-            f"DTSTART:{start_utc.strftime('%Y%m%dT%H%M%SZ')}\n"
-            f"DTEND:{end_utc.strftime('%Y%m%dT%H%M%SZ')}\n"
+            f"DTSTART:{s.strftime('%Y%m%dT%H%M%SZ')}\n"
+            f"DTEND:{e.strftime('%Y%m%dT%H%M%SZ')}\n"
             f"SUMMARY:{ev['title']}\n"
             "END:VEVENT\n"
         )
     ics += "END:VCALENDAR"
     return ics
 
-
 if __name__ == "__main__":
     evs = fetch_schedule()
-    print(f"✅ Found {len(evs)} events")
-    for e in evs:
-        print(f" - {e['title']} {e['start']} → {e['end']}")
-    ics_content = build_ics(evs)
+    print(f"Total events: {len(evs)}")
+    for ev in evs:
+        print(f"- {ev['title']} @ {ev['start']}–{ev['end']}")
     with open("zbrushlive.ics", "w", encoding="utf-8") as f:
-        f.write(ics_content)
-    print(f"📅 Saved to zbrushlive.ics")
+        f.write(build_ics(evs))
+    print("ICS file generated.")
