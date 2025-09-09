@@ -1,0 +1,8 @@
+title: ZBrushLive Calendar
+description: Auto-updated iCal feed for ZBrushLive events
+theme: minima
+
+# GitHub Pages 需要
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
